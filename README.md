@@ -7,16 +7,16 @@ To get started, you will need to install the following dependencies:
 > python main.py
 
 
-Features
-The code has the following features:
+###Features
+####The code has the following features:
 
-Gets the Google trending list.
-Gets information about the trending word from Wikipedia.
-It downloads photos about the word with Bing.
-Creates artificial speech sound.
-Combines photo and sound.
-It can generate keywords for the video.
-It can upload the video to YouTube.
+-Gets the Google trending list.
+-Gets information about the trending word from Wikipedia.
+-It downloads photos about the word with Bing.
+-Creates artificial speech sound.
+-Combines photo and sound.
+-It can generate keywords for the video.
+-It can upload the video to YouTube.
 
 
 # Contributing
