@@ -1,10 +1,10 @@
 # youtuber_bot
 
 To get started, you will need to install the following dependencies:
-pip install -r requirements.txt
+> pip install -r requirements.txt
 
 #Usage
-python main.py
+> python main.py
 
 
 Features
