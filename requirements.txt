@@ -1,0 +1,7 @@
+moviepy
+nltk
+wikipedia
+Pillow
+gTTS
+pytrends
+selenium
