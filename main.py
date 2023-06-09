@@ -2,43 +2,54 @@ import os
 import time
 import sqlite3
 
+import cairosvg
 import moviepy.editor as mp
 import nltk
+import requests
 import wikipedia
 from PIL import Image
-from bing_image_downloader import downloader
 from gtts import gTTS
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+
 from pytrends.request import TrendReq
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-def create_workspace(query):
-    workspacepath = os.path.join(os.getcwd(), "workspace", query)
-    os.makedirs(workspacepath, exist_ok=True)
-    return workspacepath
+def create_workspace():
+    workspace_path = os.path.join(os.getcwd(), "workspace", query)
+    images_dir = os.path.join(workspace_path, "images")
+    synced_images_dir = os.path.join(workspace_path, "synced")
+    audio_dir = os.path.join(workspace_path, "audio")
+    video_dir = os.path.join(workspace_path, "video", query)
+    audio_path = os.path.join(audio_dir, "speak.mp3")
+    video_path = os.path.join(video_dir, f"{query}.mp4")
+    os.makedirs(workspace_path, exist_ok=True)
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(synced_images_dir, exist_ok=True)
+    os.makedirs(video_dir, exist_ok=True)
+    os.makedirs(audio_dir, exist_ok=True)
+    return workspace_path, audio_path, video_path, audio_dir, video_dir, synced_images_dir, images_dir
 
 
-def convert_photos_to_jpg(query, workspace_path):
-    synced_dir = os.path.join(workspace_path, "synced")
-    os.makedirs(synced_dir, exist_ok=True)
-    os.makedirs(os.path.join(synced_dir, query), exist_ok=True)
-    files = os.listdir(os.path.join(workspace_path, query))
+def sync_images():
+    downloaded_images_list = []
+
+    for downloaded_image_name in os.listdir(images_dir):
+        downloaded_images_list.append(os.path.join(images_dir, downloaded_image_name))
 
     # Find the smallest photo in the list
     smallest_size = None
-    for file_path in files:
-        file_path = os.path.join(workspace_path, query, file_path)
+    for file_path in downloaded_images_list:
         image = Image.open(file_path)
         if smallest_size is None or image.size[0] < smallest_size[0]:
             smallest_size = image.size
 
-    for file_path in files:
-        file_path = os.path.join(workspace_path, query, file_path)
+    for file_path in downloaded_images_list:
         # Open the image file
         image = Image.open(file_path)
 
@@ -50,12 +61,9 @@ def convert_photos_to_jpg(query, workspace_path):
         aspect_ratio = 9 / 16
         new_width = int(smallest_size[1] * aspect_ratio)
         image = image.resize((new_width, smallest_size[1]), resample=Image.LANCZOS)
-
         # Save the image to the synced folder as JPEG
         filename = os.path.basename(file_path)
-        new_file_path = os.path.join(synced_dir, query, os.path.splitext(filename)[0] + ".jpg")
-        os.makedirs(os.path.dirname(new_file_path), exist_ok=True)
-        image.save(new_file_path, "JPEG")
+        image.save(os.path.join(synced_images_dir, filename), "JPEG")
         os.remove(file_path)
 
 
@@ -64,16 +72,20 @@ def get_trending_searches():
     return pytrend.trending_searches(pn='united_states')
 
 
-def get_wikipedia_summary(query):
+def get_wikipedia_summary():
     try:
         data = wikipedia.page(title=query, auto_suggest=True)
-        summary = data.summary
-        return summary
+        text = data.summary
+        images = data.images
+        title = data.title
+        return title, text, images
     except wikipedia.exceptions.DisambiguationError as e:
         options = e.options
         data = wikipedia.page(title=options[1], auto_suggest=True)
-        summary = data.summary
-        return summary
+        text = data.summary
+        images = data.images
+        title = data.title
+        return title, text, images
     except wikipedia.exceptions.PageError as e:
         print(f"Error: {e}")
 
@@ -91,7 +103,6 @@ def generate_keywords(text):
 
     # Extract nouns and adjectives as keywords
     keywords = [word for word, pos in tagged_tokens if pos.startswith('N') or pos.startswith('J')]
-
     return keywords
 
 
@@ -131,39 +142,49 @@ def short_keywords(keyword_list):
         return ','.join(new_list)
 
 
+def download_images():
+    supported_formats = ['svg', 'jpeg', 'png', 'bmp', 'gif', 'ppm', 'blp', 'bufr', 'cur', 'pcx', 'dcx', 'dds', 'eps', 'fits', 'fli', 'ftex', 'gbr', 'grib', 'hdf5', 'jpeg2000', 'icns', 'ico', 'im', 'imt', 'iptc', 'mcidas', 'mpeg', 'tiff', 'msp', 'pcd', 'pixar', 'psd', 'qoi', 'sgi', 'spider', 'sun', 'tga', 'webp', 'wmf', 'xbm', 'xpm', 'xvthumb']
 
-def download_images(query, workspace_path):
-    downloader.download(query, limit=5, output_dir=os.path.join(workspace_path), adult_filter_off=True,
-                        force_replace=False, timeout=10, verbose=False)
+    for i, i_url in enumerate(images_list):
+        response = requests.get(i_url)
+        if response.status_code == 200:
+            image_path = os.path.join(images_dir, f"image_{i}")
+            content_type = response.headers['Content-Type']
+            image_extension = None
+
+            for format in supported_formats:
+                if format in content_type:
+                    image_extension = format
+                    break
+
+            if image_extension is None:
+                print(f"Unsupported image format for image {i + 1}/{i}. Skipping.")
+                continue
+
+            image_path += f".{image_extension}"
+
+            # If the image format is SVG, convert it to PNG using cairosvg
+            if image_extension == 'svg':
+                svg_content = response.content
+                png_content = cairosvg.svg2png(bytestring=svg_content)
+                with open(image_path.replace(".svg", ".png"), 'wb') as f:
+                    f.write(png_content)
+            else:
+                with open(image_path, "wb") as f:
+                    f.write(response.content)
+            print(f"Image {i + 1}/{i} downloaded successfully.")
+        else:
+            print(f"Failed to download image {i + 1}/{i}. Status code: {response.status_code}")
 
 
-def create_audio(summary, workspace_path):
-    # Set up audio
-    language = "en"
-    speech = gTTS(text=summary, lang=language, slow=False)
-    audio_path = os.path.join(workspace_path, "synced", "speak.mp3")
-    os.makedirs(os.path.dirname(audio_path), exist_ok=True)
-    speech.save(audio_path)
-
-
-def create_video(query, workspace_path):
-    audio_path = os.path.join(workspace_path, "synced", "speak.mp3")
-    images_path = os.path.join(workspace_path, "synced", query)
-    output_path = os.path.join(workspace_path, "video", query, "clip.mp4")
-    os.makedirs(os.path.join(workspace_path, "video", query), exist_ok=True)
-
-    # Load audio file and get duration
-    audio = mp.AudioFileClip(audio_path)
-
-    audio_duration = audio.duration
-
+def create_video():
     # Load images and calculate duration of each image
-    images = os.listdir(images_path)
-    per_image_duration = audio_duration / len(images)
+    images = os.listdir(synced_images_dir)
+    per_image_duration = duration / len(images)
     clips = []
     # Create a video
     for i, image in enumerate(images):
-        clip = mp.ImageClip(img=os.path.join(images_path, image), duration=per_image_duration)
+        clip = mp.ImageClip(img=os.path.join(synced_images_dir, image), duration=per_image_duration)
         clip.fps = 24
         clips.append(clip)
 
@@ -171,18 +192,18 @@ def create_video(query, workspace_path):
     video = video.set_audio(audio)
 
     # Save the video
-    video.write_videofile(output_path, fps=24, codec="mpeg4")
+    video.write_videofile(video_path, fps=24, codec="mpeg4")
 
 
 def upload_video_youtube(file_path, description: str, title: str, keywords: str):
     try:
         wait = WebDriverWait(driver, 10)
 
-        create_icon = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '#create-icon > div')))
+        create_icon = wait.until(ec.element_to_be_clickable((By.CSS_SELECTOR, '#create-icon > div')))
         create_icon.click()
         time.sleep(1)
 
-        text_item = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '#text-item-0 yt-formatted-string')))
+        text_item = wait.until(ec.element_to_be_clickable((By.CSS_SELECTOR, '#text-item-0 yt-formatted-string')))
         text_item.click()
         time.sleep(1)
 
@@ -191,7 +212,7 @@ def upload_video_youtube(file_path, description: str, title: str, keywords: str)
         time.sleep(1)
 
         # Wait for the details section to be visible
-        wait.until(EC.visibility_of_element_located((By.ID, 'reuse-details-button')))
+        wait.until(ec.visibility_of_element_located((By.ID, 'reuse-details-button')))
         time.sleep(1)
 
         # Fill in the video title
@@ -205,24 +226,24 @@ def upload_video_youtube(file_path, description: str, title: str, keywords: str)
 
         # Fill in the video description
         description_input = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.description ytcp-social-suggestion-input > div')))
+            ec.element_to_be_clickable((By.CSS_SELECTOR, 'div.description ytcp-social-suggestion-input > div')))
         description_input.send_keys(description)
         time.sleep(1)
 
         # Set the video as not made for kids
-        not_made_for_kids_radio = wait.until(EC.element_to_be_clickable(
+        not_made_for_kids_radio = wait.until(ec.element_to_be_clickable(
             (By.CSS_SELECTOR, 'ytkc-made-for-kids-select tp-yt-paper-radio-button:nth-of-type(2) ytcp-ve')))
         not_made_for_kids_radio.click()
         time.sleep(1)
 
         # Enable comments on the video
-        toggle_comments_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '#toggle-button > div')))
+        toggle_comments_button = wait.until(ec.element_to_be_clickable((By.CSS_SELECTOR, '#toggle-button > div')))
         toggle_comments_button.click()
 
         time.sleep(2)
 
         # Add tags to the video
-        tags_input = wait.until(EC.visibility_of_element_located((By.XPATH,
+        tags_input = wait.until(ec.visibility_of_element_located((By.XPATH,
                                                                   '/html/body/ytcp-uploads-dialog/tp-yt-paper-dialog/div/ytcp-animatable[1]/ytcp-ve/ytcp-video-metadata-editor/div/ytcp-video-metadata-editor-advanced/div[4]/ytcp-form-input-container/div[1]/div/ytcp-free-text-chip-bar/ytcp-chip-bar/div/input')))
         tags_input.send_keys(keywords)
         time.sleep(1)
@@ -232,15 +253,15 @@ def upload_video_youtube(file_path, description: str, title: str, keywords: str)
             next_button.click()
             time.sleep(1)
 
-        public_button = wait.until(EC.element_to_be_clickable((By.NAME, 'PUBLIC')))
+        public_button = wait.until(ec.element_to_be_clickable((By.NAME, 'PUBLIC')))
         # Click the "Public" button
         public_button.click()
         time.sleep(1)
 
-        done_button = wait.until(EC.element_to_be_clickable((By.ID, "done-button")))
+        done_button = wait.until(ec.element_to_be_clickable((By.ID, "done-button")))
         done_button.click()
         time.sleep(3)
-        close_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//ytcp-button[@id="close-button"]')))
+        close_button = wait.until(ec.element_to_be_clickable((By.XPATH, '//ytcp-button[@id="close-button"]')))
 
         # Click the "Kapat" button
         close_button.click()
@@ -254,7 +275,7 @@ def generate_chrome_options():
     username = os.getlogin()
     # Configure Chrome options
     chrome_options = webdriver.ChromeOptions()
-    # chrome_options.add_argument('--headless')  # Run Chrome in headless mode (without a visible browser window)
+    chrome_options.add_argument('--headless')  # Run Chrome in headless mode (without a visible browser window)
     chrome_options.add_argument('--no-sandbox')  # Bypass OS security model
     chrome_options.add_argument('--disable-dev-shm-usage')  # Disable "DevShmUsage" flag
     chrome_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data')
@@ -263,18 +284,7 @@ def generate_chrome_options():
     return chrome_options
 
 
-def update_nltk_files():
-    import nltk
-    nltk.download('averaged_perceptron_tagger')
-    # Download the stopwords corpus if not already downloaded
-    nltk.download('stopwords')
-
-    # Download the Punkt tokenizer if not already downloaded
-    nltk.download('punkt')
-
-
 if __name__ == "__main__":
-    update_nltk_files()
     # Start ChromeDriver with options.
     driver = webdriver.Chrome(executable_path=os.path.join("driver"), options=generate_chrome_options())
     driver.get("https://studio.youtube.com/")
@@ -292,27 +302,32 @@ if __name__ == "__main__":
         cursor.execute("SELECT * FROM trends WHERE trend_name=?", (query,))
         result = cursor.fetchone()
         if result:
-            pass
+            print(f"{query} ")
 
         else:
             # Process the trend
-            workspace_path = create_workspace(query)
-            audio_path = os.path.join(workspace_path, "synced", "speak.mp3")
-            images_path = os.path.join(workspace_path, "synced")
-            summary = get_wikipedia_summary(query)
+            print(f"Beginning process for {query}.")
+            workspace_path, audio_path, video_path, audio_dir, video_dir, synced_images_dir, images_dir = create_workspace()
+            print(f"Getting Wikipedia Data")
+            wiki_title, summary, images_list = get_wikipedia_summary()
+            print(f"Wikipedia data scrapped.")
+            print(f"{query} replaced: New page title: {wiki_title}")
             if summary:
-                download_images(query, workspace_path)
-                convert_photos_to_jpg(query, workspace_path)
-                create_audio(summary, workspace_path)
-                create_video(query, workspace_path)
-                video_path = os.path.join(workspace_path, "video", query, "clip.mp4")  # Path to the video file
+                # Create audio
+                language = "en"
+                speech = gTTS(text=summary, lang=language, slow=False)
+                os.makedirs(os.path.dirname(audio_path), exist_ok=True)
+                speech.save(audio_path)
+                audio = mp.AudioFileClip(audio_path)
+                duration = int((round(audio.duration)) / 5)
+                # End of audio process
+                download_images()
+                sync_images()
+                create_video()
                 meta_tags = generate_keywords(summary)
                 shortened_tags_result = short_keywords(meta_tags)
-                print(shortened_tags_result)
-                for tag in shortened_tags_result:
-                    print(tag)
 
-                upload_video_youtube(file_path=video_path, description=summary, title=query,
+                upload_video_youtube(file_path=video_path, description=summary, title=wiki_title,
                                      keywords=shortened_tags_result)
 
                 # Store the processed trend in the database
