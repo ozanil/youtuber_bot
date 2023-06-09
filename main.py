@@ -1,6 +1,6 @@
 import os
-import time
 import sqlite3
+import time
 
 import cairosvg
 import moviepy.editor as mp
@@ -11,13 +11,26 @@ from PIL import Image
 from gtts import gTTS
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-
 from pytrends.request import TrendReq
-
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
+from webdriver_manager.chrome import ChromeDriverManager
+
+
+def generate_chrome_options():
+    username = os.getlogin()
+    # Configure Chrome options
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument('--headless')  # Run Chrome in headless mode (without a visible browser window)
+    chrome_options.add_argument('--no-sandbox')  # Bypass OS security model
+    chrome_options.add_argument('--disable-dev-shm-usage')  # Disable "DevShmUsage" flag
+    chrome_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data')
+    chrome_options.add_argument(
+        fr'--profile-directory=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data\\Default')
+    return chrome_options
 
 
 def create_workspace():
@@ -34,6 +47,62 @@ def create_workspace():
     os.makedirs(video_dir, exist_ok=True)
     os.makedirs(audio_dir, exist_ok=True)
     return workspace_path, audio_path, video_path, audio_dir, video_dir, synced_images_dir, images_dir
+
+
+def get_wikipedia_summary():
+    try:
+        data = wikipedia.page(title=query, auto_suggest=True)
+        text = data.summary
+        images = data.images
+        title = data.title
+        return title, text, images
+    except wikipedia.exceptions.DisambiguationError as e:
+        options = e.options
+        data = wikipedia.page(title=options[1], auto_suggest=True)
+        text = data.summary
+        images = data.images
+        title = data.title
+        return title, text, images
+    except wikipedia.exceptions.PageError as e:
+        print(f"Error: {e}")
+
+
+def download_images():
+    supported_formats = ['svg', 'jpeg', 'png', 'bmp', 'gif', 'ppm', 'blp', 'bufr', 'cur', 'pcx', 'dcx', 'dds', 'eps',
+                         'fits', 'fli', 'ftex', 'gbr', 'grib', 'hdf5', 'jpeg2000', 'icns', 'ico', 'im', 'imt', 'iptc',
+                         'mcidas', 'mpeg', 'tiff', 'msp', 'pcd', 'pixar', 'psd', 'qoi', 'sgi', 'spider', 'sun', 'tga',
+                         'webp', 'wmf', 'xbm', 'xpm', 'xvthumb']
+
+    for i, i_url in enumerate(images_list):
+        response = requests.get(i_url)
+        if response.status_code == 200:
+            image_path = os.path.join(images_dir, f"image_{i}")
+            content_type = response.headers['Content-Type']
+            image_extension = None
+
+            for format in supported_formats:
+                if format in content_type:
+                    image_extension = format
+                    break
+
+            if image_extension is None:
+                print(f"Unsupported image format for image {i + 1}/{i}. Skipping.")
+                continue
+
+            image_path += f".{image_extension}"
+
+            # If the image format is SVG, convert it to PNG using cairosvg
+            if image_extension == 'svg':
+                svg_content = response.content
+                png_content = cairosvg.svg2png(bytestring=svg_content)
+                with open(image_path.replace(".svg", ".png"), 'wb') as f:
+                    f.write(png_content)
+            else:
+                with open(image_path, "wb") as f:
+                    f.write(response.content)
+            print(f"Image {i + 1}/{i} downloaded successfully.")
+        else:
+            print(f"Failed to download image {i + 1}/{i}. Status code: {response.status_code}")
 
 
 def sync_images():
@@ -67,27 +136,22 @@ def sync_images():
         os.remove(file_path)
 
 
-def get_trending_searches():
-    pytrend = TrendReq()
-    return pytrend.trending_searches(pn='united_states')
+def create_video():
+    # Load images and calculate duration of each image
+    images = os.listdir(synced_images_dir)
+    per_image_duration = duration / len(images)
+    clips = []
+    # Create a video
+    for i, image in enumerate(images):
+        clip = mp.ImageClip(img=os.path.join(synced_images_dir, image), duration=per_image_duration)
+        clip.fps = 24
+        clips.append(clip)
 
+    video = mp.concatenate_videoclips(clips, method="compose")
+    video = video.set_audio(audio)
 
-def get_wikipedia_summary():
-    try:
-        data = wikipedia.page(title=query, auto_suggest=True)
-        text = data.summary
-        images = data.images
-        title = data.title
-        return title, text, images
-    except wikipedia.exceptions.DisambiguationError as e:
-        options = e.options
-        data = wikipedia.page(title=options[1], auto_suggest=True)
-        text = data.summary
-        images = data.images
-        title = data.title
-        return title, text, images
-    except wikipedia.exceptions.PageError as e:
-        print(f"Error: {e}")
+    # Save the video
+    video.write_videofile(video_path, fps=24, codec="mpeg4")
 
 
 def generate_keywords(text):
@@ -140,59 +204,6 @@ def short_keywords(keyword_list):
 
         # Return the new list of keywords as a string, separated by commas.
         return ','.join(new_list)
-
-
-def download_images():
-    supported_formats = ['svg', 'jpeg', 'png', 'bmp', 'gif', 'ppm', 'blp', 'bufr', 'cur', 'pcx', 'dcx', 'dds', 'eps', 'fits', 'fli', 'ftex', 'gbr', 'grib', 'hdf5', 'jpeg2000', 'icns', 'ico', 'im', 'imt', 'iptc', 'mcidas', 'mpeg', 'tiff', 'msp', 'pcd', 'pixar', 'psd', 'qoi', 'sgi', 'spider', 'sun', 'tga', 'webp', 'wmf', 'xbm', 'xpm', 'xvthumb']
-
-    for i, i_url in enumerate(images_list):
-        response = requests.get(i_url)
-        if response.status_code == 200:
-            image_path = os.path.join(images_dir, f"image_{i}")
-            content_type = response.headers['Content-Type']
-            image_extension = None
-
-            for format in supported_formats:
-                if format in content_type:
-                    image_extension = format
-                    break
-
-            if image_extension is None:
-                print(f"Unsupported image format for image {i + 1}/{i}. Skipping.")
-                continue
-
-            image_path += f".{image_extension}"
-
-            # If the image format is SVG, convert it to PNG using cairosvg
-            if image_extension == 'svg':
-                svg_content = response.content
-                png_content = cairosvg.svg2png(bytestring=svg_content)
-                with open(image_path.replace(".svg", ".png"), 'wb') as f:
-                    f.write(png_content)
-            else:
-                with open(image_path, "wb") as f:
-                    f.write(response.content)
-            print(f"Image {i + 1}/{i} downloaded successfully.")
-        else:
-            print(f"Failed to download image {i + 1}/{i}. Status code: {response.status_code}")
-
-
-def create_video():
-    # Load images and calculate duration of each image
-    images = os.listdir(synced_images_dir)
-    per_image_duration = duration / len(images)
-    clips = []
-    # Create a video
-    for i, image in enumerate(images):
-        clip = mp.ImageClip(img=os.path.join(synced_images_dir, image), duration=per_image_duration)
-        clip.fps = 24
-        clips.append(clip)
-
-    video = mp.concatenate_videoclips(clips, method="compose")
-    video = video.set_audio(audio)
-
-    # Save the video
-    video.write_videofile(video_path, fps=24, codec="mpeg4")
 
 
 def upload_video_youtube(file_path, description: str, title: str, keywords: str):
@@ -271,31 +282,19 @@ def upload_video_youtube(file_path, description: str, title: str, keywords: str)
         time.sleep(500)
 
 
-def generate_chrome_options():
-    username = os.getlogin()
-    # Configure Chrome options
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument('--headless')  # Run Chrome in headless mode (without a visible browser window)
-    chrome_options.add_argument('--no-sandbox')  # Bypass OS security model
-    chrome_options.add_argument('--disable-dev-shm-usage')  # Disable "DevShmUsage" flag
-    chrome_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data')
-    chrome_options.add_argument(
-        fr'--profile-directory=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data\\Default')
-    return chrome_options
-
-
 if __name__ == "__main__":
     # Start ChromeDriver with options.
-    driver = webdriver.Chrome(executable_path=os.path.join("driver"), options=generate_chrome_options())
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=generate_chrome_options())
     driver.get("https://studio.youtube.com/")
+
     # Connect to the SQLite database
     conn = sqlite3.connect('processed_trends.db')
     cursor = conn.cursor()
-
     # Create a table to store processed trends if it doesn't exist
     cursor.execute('''CREATE TABLE IF NOT EXISTS trends (trend_name text)''')
     conn.commit()
-    trends = get_trending_searches()
+    # Get Trends.
+    trends = TrendReq().trending_searches(pn='united_states')
 
     for query in trends.iloc[:, 0]:
         # Check if the trend has already been processed
@@ -324,9 +323,7 @@ if __name__ == "__main__":
                 download_images()
                 sync_images()
                 create_video()
-                meta_tags = generate_keywords(summary)
-                shortened_tags_result = short_keywords(meta_tags)
-
+                shortened_tags_result = short_keywords(generate_keywords(summary))
                 upload_video_youtube(file_path=video_path, description=summary, title=wiki_title,
                                      keywords=shortened_tags_result)
 
