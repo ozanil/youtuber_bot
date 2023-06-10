@@ -1,13 +1,15 @@
 import os
+import shutil
 import sqlite3
 import time
+import logging
+logging.getLogger('downloader').setLevel(logging.CRITICAL)
 
-import cairosvg
 import moviepy.editor as mp
 import nltk
-import requests
 import wikipedia
 from PIL import Image
+from bing_image_downloader import downloader
 from gtts import gTTS
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
@@ -24,7 +26,7 @@ def generate_chrome_options():
     username = os.getlogin()
     # Configure Chrome options
     chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument('--headless')  # Run Chrome in headless mode (without a visible browser window)
+    # chrome_options.add_argument('--headless')  # Run Chrome in headless mode (without a visible browser window)
     chrome_options.add_argument('--no-sandbox')  # Bypass OS security model
     chrome_options.add_argument('--disable-dev-shm-usage')  # Disable "DevShmUsage" flag
     chrome_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data')
@@ -49,60 +51,44 @@ def create_workspace():
     return workspace_path, audio_path, video_path, audio_dir, video_dir, synced_images_dir, images_dir
 
 
-def get_wikipedia_summary():
+def get_wikipedia_summary(search_text, lists=1):
     try:
-        data = wikipedia.page(title=query, auto_suggest=True)
+        data = wikipedia.page(title=search_text, auto_suggest=True)
         text = data.summary
-        images = data.images
         title = data.title
-        return title, text, images
+        return title, text
+
     except wikipedia.exceptions.DisambiguationError as e:
-        options = e.options
-        data = wikipedia.page(title=options[1], auto_suggest=True)
-        text = data.summary
-        images = data.images
-        title = data.title
-        return title, text, images
-    except wikipedia.exceptions.PageError as e:
-        print(f"Error: {e}")
+        if lists < len(e.options):
+            option = e.options[lists]
+            print(f"{e}\nSearch text replaced. {option} is the new search title.")
+            return get_wikipedia_summary(option, lists + 1)
+        else:
+            print("No more options available.")
+            return None, None
+
+    except wikipedia.exceptions.PageError:
+        print("Page error for Wikipedia search.")
+        return None, None
 
 
 def download_images():
-    supported_formats = ['svg', 'jpeg', 'png', 'bmp', 'gif', 'ppm', 'blp', 'bufr', 'cur', 'pcx', 'dcx', 'dds', 'eps',
-                         'fits', 'fli', 'ftex', 'gbr', 'grib', 'hdf5', 'jpeg2000', 'icns', 'ico', 'im', 'imt', 'iptc',
-                         'mcidas', 'mpeg', 'tiff', 'msp', 'pcd', 'pixar', 'psd', 'qoi', 'sgi', 'spider', 'sun', 'tga',
-                         'webp', 'wmf', 'xbm', 'xpm', 'xvthumb']
+    downloader.download(query, limit=images_count, output_dir=images_dir, adult_filter_off=True,
+                        force_replace=False, timeout=1, verbose=False)
 
-    for i, i_url in enumerate(images_list):
-        response = requests.get(i_url)
-        if response.status_code == 200:
-            image_path = os.path.join(images_dir, f"image_{i}")
-            content_type = response.headers['Content-Type']
-            image_extension = None
+    source_dir = os.path.join(images_dir, query)
+    destination_dir = images_dir
 
-            for format in supported_formats:
-                if format in content_type:
-                    image_extension = format
-                    break
+    # Get a list of all files in the source directory
+    files = os.listdir(source_dir)
 
-            if image_extension is None:
-                print(f"Unsupported image format for image {i + 1}/{i}. Skipping.")
-                continue
+    # Iterate over each file and move it to the destination directory
+    for file_name in files:
+        source_path = os.path.join(source_dir, file_name)
+        destination_path = os.path.join(destination_dir, file_name)
+        shutil.move(source_path, destination_path)
 
-            image_path += f".{image_extension}"
-
-            # If the image format is SVG, convert it to PNG using cairosvg
-            if image_extension == 'svg':
-                svg_content = response.content
-                png_content = cairosvg.svg2png(bytestring=svg_content)
-                with open(image_path.replace(".svg", ".png"), 'wb') as f:
-                    f.write(png_content)
-            else:
-                with open(image_path, "wb") as f:
-                    f.write(response.content)
-            print(f"Image {i + 1}/{i} downloaded successfully.")
-        else:
-            print(f"Failed to download image {i + 1}/{i}. Status code: {response.status_code}")
+    shutil.rmtree(source_dir)
 
 
 def sync_images():
@@ -282,6 +268,21 @@ def upload_video_youtube(file_path, description: str, title: str, keywords: str)
         time.sleep(500)
 
 
+def clean_up(directory_path):
+    """
+    Removes a directory and its files.
+
+    Args:
+        directory_path (str): The path to the directory to be removed.
+    """
+    try:
+        # Remove the directory and its contents
+        shutil.rmtree(directory_path)
+        print(f"Directory '{directory_path}' and its files have been successfully removed.")
+    except OSError as e:
+        print(f"Error: {e.filename} - {e.strerror}. Failed to remove the directory '{directory_path}'.")
+
+
 if __name__ == "__main__":
     # Start ChromeDriver with options.
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=generate_chrome_options())
@@ -297,20 +298,22 @@ if __name__ == "__main__":
     trends = TrendReq().trending_searches(pn='united_states')
 
     for query in trends.iloc[:, 0]:
+        ori_query = query
+        query, summary = get_wikipedia_summary(ori_query)
         # Check if the trend has already been processed
         cursor.execute("SELECT * FROM trends WHERE trend_name=?", (query,))
         result = cursor.fetchone()
         if result:
             print(f"{query} ")
 
-        else:
+        elif result is None and summary:
             # Process the trend
             print(f"Beginning process for {query}.")
+            print(f"Retrieving wikipedia data.")
+            ori_query = query
+            print(f"Retrieved wikipedia data."),
+            print(f"{ori_query} has been replaced: New page title: {query}")
             workspace_path, audio_path, video_path, audio_dir, video_dir, synced_images_dir, images_dir = create_workspace()
-            print(f"Getting Wikipedia Data")
-            wiki_title, summary, images_list = get_wikipedia_summary()
-            print(f"Wikipedia data scrapped.")
-            print(f"{query} replaced: New page title: {wiki_title}")
             if summary:
                 # Create audio
                 language = "en"
@@ -318,13 +321,15 @@ if __name__ == "__main__":
                 os.makedirs(os.path.dirname(audio_path), exist_ok=True)
                 speech.save(audio_path)
                 audio = mp.AudioFileClip(audio_path)
-                duration = int((round(audio.duration)) / 5)
+                duration = audio.duration
+                images_count = round(duration / 5)
                 # End of audio process
+                print("Photos download starts. You may see some errors. Ignore them.")
                 download_images()
                 sync_images()
                 create_video()
                 shortened_tags_result = short_keywords(generate_keywords(summary))
-                upload_video_youtube(file_path=video_path, description=summary, title=wiki_title,
+                upload_video_youtube(file_path=video_path, description=summary, title=query,
                                      keywords=shortened_tags_result)
 
                 # Store the processed trend in the database
@@ -333,4 +338,4 @@ if __name__ == "__main__":
 
     # Close the database connection
     conn.close()
-    exit()
+    clean_up(os.path.join(os.getcwd(), "workspace"))
