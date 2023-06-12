@@ -1,8 +1,9 @@
-moviepy
-nltk
-requests
-wikipedia
-Pillow
-gTTS
-pytrends
-selenium
+moviepy>=1.0.3
+nltk>=3.8.1
+wikipedia>=1.4.0
+Pillow>=9.5.0
+gTTS>=2.3.2
+pytrends>=4.9.2
+selenium>=3.141.0
+webdriver-manager>=3.4.2
+bing-image-downloader>=1.1.1

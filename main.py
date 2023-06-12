@@ -3,7 +3,7 @@ import shutil
 import sqlite3
 import time
 import logging
-logging.getLogger('downloader').setLevel(logging.CRITICAL)
+logging.getLogger('downloader').setLevel(logging.DEBUG)
 
 import moviepy.editor as mp
 import nltk
@@ -29,9 +29,23 @@ def generate_chrome_options():
     # chrome_options.add_argument('--headless')  # Run Chrome in headless mode (without a visible browser window)
     chrome_options.add_argument('--no-sandbox')  # Bypass OS security model
     chrome_options.add_argument('--disable-dev-shm-usage')  # Disable "DevShmUsage" flag
-    chrome_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data')
-    chrome_options.add_argument(
-        fr'--profile-directory=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data\\Default')
+    # OS is Windows:
+    if os.name == 'nt':
+        chrome_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data')
+        chrome_options.add_argument(fr'--profile-directory=C:\\Users\\{username}\\AppData\\Local\\Google\\Chrome\\User Data\\Default')
+    # OS is Linux:
+    elif os.name == 'posix':
+        chrome_options.add_argument(fr'--user-data-dir=/home/{username}/.config/google-chrome')
+        chrome_options.add_argument(fr'--profile-directory=Default')
+    # OS is MacOS:
+    elif os.name == 'darwin':
+        chrome_options.add_argument(fr'--user-data-dir=/Users/{username}/Library/Application Support/Google/Chrome')
+        chrome_options.add_argument(fr'--profile-directory=Default')
+    else:
+        user_data_dir = input("Enter Chrome user data directory: ")
+        profile_dir = input("Enter Chrome profile directory: ")
+        chrome_options.add_argument(fr'--user-data-dir={user_data_dir}')
+        chrome_options.add_argument(fr'--profile-directory={profile_dir}')
     return chrome_options
 
 
@@ -284,6 +298,13 @@ def clean_up(directory_path):
 
 
 if __name__ == "__main__":
+    # User input for ask "Do you want shoutdown your computer after upload?"
+    shutdown = input("Do you want shoutdown your computer after upload? (y/n): ")
+    if shutdown == "y":
+        shutdown = True
+    else:
+        shutdown = False
+
     # Start ChromeDriver with options.
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=generate_chrome_options())
     driver.get("https://studio.youtube.com/")
@@ -339,3 +360,9 @@ if __name__ == "__main__":
     # Close the database connection
     conn.close()
     clean_up(os.path.join(os.getcwd(), "workspace"))
+    driver.quit()
+    if shutdown:
+        os.system('shutdown -s')
+    else:
+        pass
+
