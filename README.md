@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Google Trending Video Generator</title>
 </head>
 <body>
   <h1>Google Trending Video Generator</h1>
