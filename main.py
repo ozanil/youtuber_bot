@@ -20,6 +20,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.firefox import GeckoDriverManager
+from webdriver_manager.microsoft import EdgeChromiumDriverManager
+
 
 
 def generate_chrome_options():
@@ -47,6 +50,48 @@ def generate_chrome_options():
         chrome_options.add_argument(fr'--user-data-dir={user_data_dir}')
         chrome_options.add_argument(fr'--profile-directory={profile_dir}')
     return chrome_options
+
+def generate_firefox_options():
+    username = os.getlogin()
+    # Configure Firefox options
+    firefox_options = webdriver.FirefoxOptions()
+    # firefox_options.add_argument('--headless')  # Run Firefox in headless mode (without a visible browser window)
+    firefox_options.add_argument('--no-sandbox')  # Bypass OS security model
+    firefox_options.add_argument('--disable-dev-shm-usage')  # Disable "DevShmUsage" flag
+    # OS is Windows:
+    if os.name == 'nt':
+        firefox_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Mozilla\\Firefox\\Profiles')
+    # OS is Linux:
+    elif os.name == 'posix':
+        firefox_options.add_argument(fr'--user-data-dir=/home/{username}/.mozilla/firefox')
+    # OS is MacOS:
+    elif os.name == 'darwin':
+        firefox_options.add_argument(fr'--user-data-dir=/Users/{username}/Library/Application Support/Firefox/Profiles')
+    else:
+        user_data_dir = input("Enter Firefox user data directory: ")
+        firefox_options.add_argument(fr'--user-data-dir={user_data_dir}')
+    return firefox_options
+
+def generate_edge_options():
+    username = os.getlogin()
+    # Configure Edge options
+    edge_options = webdriver.EdgeOptions()
+    # edge_options.add_argument('--headless')  # Run Edge in headless mode (without a visible browser window)
+    edge_options.add_argument('--no-sandbox')  # Bypass OS security model
+    edge_options.add_argument('--disable-dev-shm-usage')  # Disable "DevShmUsage" flag
+    # OS is Windows:
+    if os.name == 'nt':
+        edge_options.add_argument(fr'--user-data-dir=C:\\Users\\{username}\\AppData\\Local\\Microsoft\\Edge\\User Data')
+    # OS is Linux:
+    elif os.name == 'posix':
+        edge_options.add_argument(fr'--user-data-dir=/home/{username}/.config/microsoft-edge')
+    # OS is MacOS:
+    elif os.name == 'darwin':
+        edge_options.add_argument(fr'--user-data-dir=/Users/{username}/Library/Application Support/Microsoft Edge')
+    else:
+        user_data_dir = input("Enter Edge user data directory: ")
+        edge_options.add_argument(fr'--user-data-dir={user_data_dir}')
+    return edge_options
 
 
 def create_workspace():
@@ -305,8 +350,18 @@ if __name__ == "__main__":
     else:
         shutdown = False
 
-    # Start ChromeDriver with options.
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=generate_chrome_options())
+    browser_type = input("Which browser do you want to use? (chrome or c /firefox or f /edge or e): ")
+
+    if browser_type == "chrome" or browser_type == "c":
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=generate_chrome_options())
+    elif browser_type == "firefox" or browser_type == "f":
+        driver = webdriver.Firefox(service=Service(GeckoDriverManager().install()), options=generate_firefox_options())
+    elif browser_type == "edge" or browser_type == "e":
+        driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=generate_edge_options(), keep_alive=True)
+    else:
+        print("Invalid browser type!")
+        exit(1)
+
     driver.get("https://studio.youtube.com/")
 
     # Connect to the SQLite database
