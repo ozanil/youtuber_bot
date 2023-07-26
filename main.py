@@ -237,18 +237,23 @@ def short_keywords(keyword_list):
     else:
         new_list = []
         total_length = 0
+        i = 0
 
         # Iterate through the keyword_list and add keywords to new_list until the total length exceeds 500 characters.
-        for keyword in keyword_list:
+        while total_length <= 500:
+            keyword = keyword_list[i]
             # Check if adding the current keyword exceeds the maximum length of 500 characters.
             if total_length + len(keyword) + len(new_list) <= 500:
                 new_list.append(keyword)
                 total_length += len(keyword)
+                i += 1
             else:
                 break
 
-        # Return the new list of keywords as a string, separated by commas.
+        # Concatenate the keywords in new_list and return it.
         return ','.join(new_list)
+
+
 
 
 def upload_video_youtube(file_path, description: str, title: str, keywords: str):
@@ -345,11 +350,7 @@ def clean_up(directory_path):
 if __name__ == "__main__":
     # User input for ask "Do you want shoutdown your computer after upload?"
     shutdown = input("Do you want shoutdown your computer after upload? (y/n): ")
-    if shutdown == "y":
-        shutdown = True
-    else:
-        shutdown = False
-
+    
     browser_type = input("Which browser do you want to use? (chrome or c /firefox or f /edge or e): ")
 
     if browser_type == "chrome" or browser_type == "c":
@@ -416,7 +417,7 @@ if __name__ == "__main__":
     conn.close()
     clean_up(os.path.join(os.getcwd(), "workspace"))
     driver.quit()
-    if shutdown:
+    if shutdown == "y":
         os.system('shutdown -s')
     else:
         pass
